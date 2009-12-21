@@ -37,7 +37,7 @@ from twisted.python import log
 from twittytwister.twitter import Twitter
 
 from passerd.data import DataStore, TwitterUserData
-from passerd.feeds import HomeTimelineFeed
+from passerd.feeds import HomeTimelineFeed, ListTimelineFeed
 from passerd.callbacks import CallbackList
 from passerd.utils import full_entity_decode
 
@@ -68,6 +68,7 @@ LENGTH_LIMIT = 140
 
 dbg = logging.debug
 pinfo = logging.info
+perror = logging.error
 
 
 def hooks(fn):
@@ -553,15 +554,14 @@ class TwitterIrcUserCache:
             self.fetch_all_friend_info(unknown_users)
 
 class TwitterChannel(IrcChannel):
-    """The #twitter channel"""
     def __init__(self, proto, name):
         IrcChannel.__init__(self, proto, name)
-        self.feed = HomeTimelineFeed(proto)
+        self.feed = self._timelineFeed(proto)
         self.feed.addCallback(self.got_entry)
         self.feed.addErrback(self.refresh_error)
 
-    def topic(self):
-        return "Passerd -- Twitter home timeline channel"
+    def _timelineFeed(self, proto):
+        raise NotImplementedError
 
     def get_friend_list(self):
         d = defer.Deferred()
@@ -746,6 +746,75 @@ class TwitterChannel(IrcChannel):
         #TODO: make the behavior of "/me" messages configurable
         self.sendTwitterUpdate('/me %s' % (arg))
 
+class MainChannel(TwitterChannel):
+    """The #twitter channel"""
+
+    def topic(self):
+        return "Passerd -- Twitter home timeline channel"
+
+    def _timelineFeed(self, proto):
+        return HomeTimelineFeed(proto)
+
+class ListChannel(TwitterChannel):
+
+    def __init__(self, proto, list_user, list_name):
+        self.list_user = list_user
+        self.list_name = list_name
+        TwitterChannel.__init__(self, proto, self._channelName())
+
+    def _timelineFeed(self, proto):
+        return ListTimelineFeed(proto, self.list_user, self.list_name)
+
+    def _channelName(self):
+        return "#@%s/%s" % (self.list_user, self.list_name)
+
+    def topic(self):
+        return "Passerd -- @%s/%s" % (self.list_user, self.list_name)
+
+    def get_member_list(self):
+        d = defer.Deferred()
+        members = set()
+
+        def got_page(next, prev):
+            if not next or next == "0":
+                d.callback(members)
+                return
+            doit(next)
+
+        def doit(cursor="-1"):
+            self.proto.dbg("requesting list of members for @%s/%s" %
+                    (self.list_user, self.list_name))
+            params = {"cursor": cursor}
+            self.proto.api.list_members(members.add, self.list_user,
+                    self.list_name, params=params,
+                    page_delegate=got_page).addCallbacks(lambda *args: None, error)
+
+        def error(*args):
+            self.proto.dbg("error: %r" % (args))
+
+        doit()
+        return d
+
+    def list_members(self):
+        d = defer.Deferred()
+        ids = []
+
+        def doit():
+            dbg("requesting members for list")
+            self.get_member_list().addCallbacks(got_members, d.errback)
+
+        def got_members(members):
+            dbg("Finished getting members list")
+            self.proto.dbg("you are following %d people" % (len(members)))
+            users = [self.proto.the_user]
+            for tu in members:
+                self.proto.global_twuser_cache.got_api_user_info(tu)
+                users.append(self.proto.twitter_users.user_from_id(tu.id))
+            d.callback(users)
+
+        doit()
+        return d
+
 class PasserdProtocol(IRC):
     def connectionMade(self):
         self.quit_sent = False
@@ -846,6 +915,9 @@ class PasserdProtocol(IRC):
         dbg("JOIN! %r %r" % (prefix, params))
         cname = params[0]
         channel = self.get_channel(cname)
+        if channel is None:
+            channel = self.join_channel(cname)
+        dbg("get_channel %r" % (channel))
         if channel is not None:
             channel.userJoined(self.the_user)
 
@@ -918,7 +990,7 @@ class PasserdProtocol(IRC):
     def credentials_ok(self):
         self.user_data = self.data.get_user(self.the_user.nick, create=True)
 
-        self.twitter_chan = TwitterChannel(self, '#twitter')
+        self.twitter_chan = MainChannel(self, '#twitter')
         self.channels = {'#twitter':self.twitter_chan}
 
         self.send_reply(irc.RPL_WELCOME, ":Welcome to the Internet Relay Network %s!%s@%s" % (self.the_user.nick, self.the_user.username, self.the_user.hostname))
@@ -951,6 +1023,24 @@ class PasserdProtocol(IRC):
         for u in self.users:
             if nick == u.nick:
                 return u
+
+    def join_channel(self, name):
+        #TODO make it generic to allow more types of channels
+        dbg("about to join channel: %s" % (name))
+        channel = None
+        if name.startswith("#@"):
+            try:
+                rawuser, list_name = name.split('/')
+            except ValueError:
+                pass
+            else:
+                user = rawuser[2:]
+                if not user or not list_name:
+                    perror('invalid list spec: %r' % (name))
+                    return None
+                channel = ListChannel(self, user, list_name)
+                self.channels[name] = channel
+        return channel
 
     def get_channel(self, name):
         return self.channels.get(name)

@@ -23,6 +23,7 @@ available:
 * Sending new updates to Twitter is as simple as sending a message to the channel
 * Your friends timeline will appear as IRC messages on the channel
 * You can follow/unfollow people using the IRC `/kick` and `/invite` commands
+* You can follow specific public lists using `/join #@username/listname`
 
 
 ### Special commands
