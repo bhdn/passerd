@@ -1293,6 +1293,7 @@ class PasserdGlobalOptions:
         #logging:
         self.logstream = sys.stderr
         self.loglevel = logging.INFO
+        self.logformat = '%(asctime)s:%(levelname)s:%(name)s:%(message)s'
         # sqlalchemy is too verbose on the INFO loglevel
         self.dbloglevel = logging.ERROR
 
@@ -1319,10 +1320,13 @@ def parse_cmdline(args, opts):
     parser.add_option("-D", "--debug",
             action="callback", callback=set_loglevels,
             help="Enable debug logging")
+    parser.add_option("--logformat",
+            metavar="FORMAT", type="string", default=None,
+            help="Set the logging format")
     levelopt = parser.add_option("--loglevel", metavar="LEVEL",
             type="string", action="callback", callback=set_loglevels,
             help="Set the log level (info, warning, error, debug)")
-    _, args = parser.parse_args(args)
+    _, args = parser.parse_args(args, values=opts)
     if not args:
         parser.error("the database path is needed!")
     opts.database = args[0]
@@ -1331,7 +1335,7 @@ def parse_cmdline(args, opts):
 def setup_logging(opts):
 
     ch = logging.StreamHandler(opts.logstream)
-    f = logging.Formatter('%(asctime)s:%(levelname)s:%(name)s:%(message)s')
+    f = logging.Formatter(opts.logformat)
     ch.setFormatter(f)
 
     # root logger:
