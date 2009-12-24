@@ -1305,17 +1305,23 @@ def parse_cmdline(args, opts):
             parser.error("invalid listen address, expected HOST:PORT")
         opts.listen = (host, port)
 
-    def set_loglevels(level, dblevel):
-        opts.loglevel = level
-        opts.dbloglevel = dblevel
+    def set_loglevels(option, optstr, value, parser):
+        if option is levelopt:
+            opts.loglevel = logging.getLevelName(value.upper())
+        else:
+            opts.dbloglevel = logging.DEBUG
+            opts.loglevel = logging.DEBUG
 
     parser = optparse.OptionParser("%prog [options] <database path>")
     parser.add_option("-l", "--listen", type="string",
             action="callback", callback=parse_hostport,
             metavar="HOST:PORT", help="listen address")
     parser.add_option("-D", "--debug",
-            action="callback", callback=lambda *args: set_loglevels(logging.DEBUG, logging.DEBUG),
+            action="callback", callback=set_loglevels,
             help="Enable debug logging")
+    levelopt = parser.add_option("--loglevel", metavar="LEVEL",
+            type="string", action="callback", callback=set_loglevels,
+            help="Set the log level (info, warning, error, debug)")
     _, args = parser.parse_args(args)
     if not args:
         parser.error("the database path is needed!")
