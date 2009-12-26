@@ -704,7 +704,60 @@ class TwitterChannel(IrcChannel):
 
 #TODO: support multi-feed channel, so the mentions and home timeline appear on the same place
 
-class MainChannel(TwitterChannel):
+class FriendlistMixIn:
+    """An extension to TwitterChannel to handle list of friends/members"""
+
+    def _friendList(self, delegate, params={}, page_delegate=None):
+        raise NotImplementedError
+
+    def _handleUserRefs(self, friends):
+        raise NotImplementedError
+
+    def get_friend_list(self):
+        d = defer.Deferred()
+        friends = set()
+
+        def finished(*args):
+            self.proto.dbg("finished: %r, friends so far: %d" % (args, len(friends)))
+
+        def got_page(next, prev):
+            self.proto.dbg("got page: %s<-%s" % (next, prev))
+            if not next or next == "0":
+                finished()
+                d.callback(friends)
+                return
+            doit(next)
+
+        def doit(cursor):
+            params = {"cursor": cursor}
+            d = self._friendList(got_friend, params, page_delegate=got_page)
+            d.addCallbacks(finished, error)
+
+        def got_friend(ref):
+            friends.add(ref)
+
+        def error(*args):
+            self.proto.dbg("error: %r" % (args))
+
+        doit("-1")
+        return d
+
+    def list_members(self):
+        d = defer.Deferred()
+        ids = []
+
+        def doit():
+            self.get_friend_list().addCallbacks(got_list, d.errback)
+
+        def got_list(userrefs):
+            dbg("Finished getting friend IDs for %s", self.name)
+            users = self._handleUserRefs(userrefs)
+            d.callback(users)
+
+        doit()
+        return d
+
+class MainChannel(FriendlistMixIn, TwitterChannel):
     """The #twitter channel"""
 
     def topic(self):
@@ -713,42 +766,15 @@ class MainChannel(TwitterChannel):
     def _timelineFeed(self, proto):
         return HomeTimelineFeed(proto)
 
-    def get_friend_list(self):
-        d = defer.Deferred()
-        ids = set()
+    def _friendList(self, delegate, params={}, page_delegate=None):
+        #FIXME: user proto.user_data instead of the_user.nick
+        return self.proto.api.friends_ids(delegate, self.proto.the_user.nick,
+                params=params, page_delegate=page_delegate)
 
-        def doit():
-            self.proto.dbg("requesting list of friends...")
-            #FIXME: user proto.user_data instead of the_user.nick
-            self.proto.api.friends_ids(got_id, self.proto.the_user.nick).addCallbacks(finished, d.errback)
-
-        def got_id(id):
-            ids.add(int(id))
-
-        def finished(*args):
-            d.callback(ids)
-
-        doit()
-        return d
-
-    def list_members(self):
-        d = defer.Deferred()
-        ids = []
-
-        def doit():
-            dbg("requesting friend IDs")
-            self.get_friend_list().addCallbacks(got_list, d.errback)
-
-        def got_list(ids):
-            dbg("Finished getting friend IDs")
-            self.proto.dbg("you are following %d people" % (len(ids)))
-            users = [self.proto.get_twitter_user(id, watch=True) for id in ids]
-            self.proto.twitter_users.fetch_friend_info(users)
-            #FIXME: include the_user only if the user already joined
-            d.callback([self.proto.the_user]+users)
-
-        doit()
-        return d
+    def _handleUserRefs(self, userrefs):
+        users = [self.proto.get_twitter_user(int(rawid), watch=True) for rawid in userrefs]
+        self.proto.twitter_users.fetch_friend_info(users)
+        return [self.proto.the_user] + users
 
     def inviteUser(self, nickname):
         #TODO: send a better error message if user is already being followed
@@ -810,7 +836,7 @@ class MentionsChannel(TwitterChannel):
         return MentionsFeed(proto)
 
 
-class ListChannel(TwitterChannel):
+class ListChannel(FriendlistMixIn, TwitterChannel):
 
     def __init__(self, proto, list_user, list_name):
         self.list_user = list_user
@@ -826,52 +852,19 @@ class ListChannel(TwitterChannel):
     def topic(self):
         return "Passerd -- @%s/%s" % (self.list_user, self.list_name)
 
-    def get_member_list(self):
-        d = defer.Deferred()
-        members = set()
+    def _friendList(self, delegate, params={}, page_delegate=None):
+        return self.proto.api.list_members(delegate, self.list_user,
+                self.list_name, params=params, page_delegate=page_delegate)
 
-        def got_page(next, prev):
-            if not next or next == "0":
-                d.callback(members)
-                return
-            doit(next)
+    def _handleUserRefs(self, userrefs):
+        users = [self.proto.the_user]
+        for tu in userrefs:
+            self.proto.global_twuser_cache.got_api_user_info(tu)
+            users.append(self.proto.get_twitter_user(tu.id, watch=True))
+        return users
 
-        def doit(cursor="-1"):
-            self.proto.dbg("requesting list of members for @%s/%s" %
-                    (self.list_user, self.list_name))
-            params = {"cursor": cursor}
-            self.proto.api.list_members(members.add, self.list_user,
-                    self.list_name, params=params,
-                    page_delegate=got_page).addCallbacks(lambda *args: None, error)
 
-        def error(*args):
-            self.proto.dbg("error: %r" % (args))
-
-        doit()
-        return d
-
-    def list_members(self):
-        d = defer.Deferred()
-        ids = []
-
-        def doit():
-            dbg("requesting members for list")
-            self.get_member_list().addCallbacks(got_members, d.errback)
-
-        def got_members(members):
-            dbg("Finished getting members list")
-            self.proto.dbg("you are following %d people" % (len(members)))
-            #FIXME: include the_user only if the user already joined
-            users = [self.proto.the_user]
-            for tu in members:
-                self.proto.global_twuser_cache.got_api_user_info(tu)
-                users.append(self.proto.get_twitter_user(tu.id, watch=True))
-            d.callback(users)
-
-        doit()
-        return d
-
-class UserChannel(ListChannel):
+class UserChannel(FriendlistMixIn, TwitterChannel):
 
     def __init__(self, proto, user):
         self.user = user
@@ -887,28 +880,16 @@ class UserChannel(ListChannel):
     def topic(self):
         return "User timeline -- %s" % (self.user)
 
-    def get_member_list(self):
-        d = defer.Deferred()
-        friends = set()
+    def _friendList(self, delegate, params={}, page_delegate=None):
+        return self.proto.api.list_friends(delegate, self.user, params=params,
+                page_delegate=page_delegate)
 
-        def got_page(next, prev):
-            if not next or next == "0":
-                d.callback(friends)
-                return
-            doit(next)
-
-        def doit(cursor="-1"):
-            self.proto.dbg("requesting list of friends for @%s" %
-                    (self.user))
-            params = {"cursor": cursor}
-            self.proto.api.list_friends(friends.add, self.user, params=params,
-                    page_delegate=got_page).addCallbacks(lambda *args: None, error)
-
-        def error(*args):
-            self.proto.dbg("error: %r" % (args))
-
-        doit()
-        return d
+    def _handleUserRefs(self, userrefs):
+        users = []
+        for tu in userrefs:
+            self.proto.global_twuser_cache.got_api_user_info(tu)
+            users.append(self.proto.get_twitter_user(tu.id, watch=True))
+        return users
 
 class PasserdProtocol(IRC):
     def connectionMade(self):
