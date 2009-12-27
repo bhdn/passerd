@@ -69,7 +69,7 @@ MAX_USER_INFO_FETCH = 0  # individual fetch is not implemented yet...
 MAX_FRIEND_PAGE_REQS = 10
 
 # time between twitter auth retries (sometimes fails with 503)
-EARLY_AUTH_INTERVAL = 10
+EARLY_AUTH_INTERVAL = 2
 
 
 LENGTH_LIMIT = 140
