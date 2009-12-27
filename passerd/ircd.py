@@ -26,6 +26,7 @@
 
 import sys, logging, time, re, random
 import optparse
+import urllib
 
 from twisted.words.protocols import irc
 from twisted.words.protocols.irc import IRC
@@ -99,7 +100,7 @@ dbg = logger.debug
 pinfo = logger.info
 perror = logger.error
 
-
+URL_SHORTENER_BASEURL = "http://u.nu/unu-api-simple?url="
 
 # OAuth stuff:
 OAUTH_CONSUMER_KEY='1K2bNGyqs7dtDKTaTlfnQ'
@@ -860,6 +861,73 @@ class TwitterChannel(IrcChannel):
             api = self.proto.api
             self.bot_msg('Rate limit: %s. remaining: %s. reset: %s' % (api.rate_limit_limit, api.rate_limit_remaining, time.ctime(api.rate_limit_reset)))
             return
+        args = cmd.split(" ", 1)
+        if len(args) > 1 and args[0] == 's':
+            self.sendShortened(args[1])
+            return
+
+
+    def _shortenOneURL(self, url):
+        d = defer.Deferred()
+        def doit():
+            requrl = URL_SHORTENER_BASEURL + urllib.quote_plus(url)
+            d = twclient.getPage(requrl).addCallbacks(done, error)
+
+        def done(resp):
+            newurl = resp.rstrip()
+            d.callback((url, newurl))
+
+        def error(*args):
+            self.notice("failed to request URL shortening: %s" % (args))
+            d.errback(*args)
+
+        doit()
+        return d
+
+    def _shortenURLs(self, longurls):
+        d = defer.Deferred()
+        shorturls = set()
+        def doit():
+            for url in longurls:
+                self._shortenOneURL(url).addCallbacks(done, error)
+
+        def done(resp):
+            shorturls.add(resp)
+            if len(shorturls) == len(longurls):
+                d.callback(shorturls)
+
+        def error(*args):
+            d.errback(*args)
+
+        doit()
+        return d
+
+    def sendShortened(self, message):
+        #TODO encoding?
+        d = defer.Deferred()
+        def doit():
+            shorten = set()
+            words = message.split()
+            for word in words:
+                if word.startswith("http://") or word.startswith("https://"):
+                    shorten.add(word)
+            if shorten:
+                self._shortenURLs(shorten).addCallbacks(done, error)
+            else:
+                self.sendTwitterUpdate(message)
+
+        def done(urls):
+            new = message
+            for long, short in urls:
+                dbg("replacing url %r by %r" % (long, short))
+                new = new.replace(long, short)
+            self.sendTwitterUpdate(new)
+
+        def error(*args):
+            self.notice("failed to shorten url: %s" % (args))
+
+        doit()
+        return d
 
     def messageReceived(self, sender, msg):
         if msg.startswith('!'):
