@@ -68,6 +68,9 @@ MAX_USER_INFO_FETCH = 0  # individual fetch is not implemented yet...
 # the maximum number of sequential friend list page requests:
 MAX_FRIEND_PAGE_REQS = 10
 
+# time between twitter auth retries (sometimes fails with 503)
+EARLY_AUTH_INTERVAL = 10
+
 
 LENGTH_LIMIT = 140
 
@@ -1321,8 +1324,14 @@ class PasserdProtocol(IRC):
             self.welcomeUser()
 
         def error(e):
-            self.send_reply(irc.ERR_PASSWDMISMATCH, ":error validating Twitter credentials - %s" % (e.value))
-            self.transport.loseConnection()
+            if e.value.status == '503':
+                reactor.callLater(EARLY_AUTH_INTERVAL, doit)
+                self.notice(':error: %s' % (e.value))
+                self.notice(':retrying in %d seconds' %
+                        (EARLY_AUTH_INTERVAL))
+            else:
+                self.send_reply(irc.ERR_PASSWDMISMATCH, ":error validating Twitter credentials - %s" % (e.value))
+                self.transport.loseConnection()
 
         doit()
 
