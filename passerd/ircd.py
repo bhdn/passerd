@@ -654,8 +654,8 @@ class TwitterChannel(IrcChannel):
         self.printEntry(e)
 
     def refresh_error(self, e):
-        dbg("#twitter refresh error")
-        self.proto.chan_notice(self, "error refreshing feed: %s" % (e.value))
+        if e.value.status != '503' or logger.level == logging.DEBUG:
+            self.proto.chan_notice(self, "error refreshing feed: %s" % (e.value))
 
     def start(self):
         for f in self.feeds:
