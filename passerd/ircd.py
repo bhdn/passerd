@@ -41,7 +41,7 @@ from twittytwister.twitter import Twitter, TwitterClientInfo
 
 from passerd.data import DataStore, TwitterUserData
 from passerd.callbacks import CallbackList
-from passerd.utils import full_entity_decode
+from passerd.utils import full_entity_decode, strip_html
 from passerd.feeds import HomeTimelineFeed, ListTimelineFeed, UserTimelineFeed, MentionsFeed, DirectMessagesFeed
 
 from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
@@ -735,10 +735,20 @@ class TwitterChannel(IrcChannel):
             return '@'
         return ''
 
+    def formatEntry(self, entry):
+        if self.getFlag('fancy'):
+            ts = time.strptime(entry.created_at, '%a %b %d %H:%M:%S +0000 %Y')
+            ctime = time.ctime(time.mktime(ts) - time.altzone)
+            source = strip_html(full_entity_decode(entry.source))
+            text = '%s // %s %s' % (entry.text, source, ctime)
+        else:
+            text = entry.text
+        return text
+
     def printEntry(self, entry):
         u = self.proto.get_twitter_user(entry.user.id)
         dbg("entry id: %r" % (entry.id))
-        text = entry.text
+        text = self.formatEntry(entry)
         dbg('entry text: %r' % (text))
         self.proto.send_text(u, self, text)
 
@@ -884,6 +894,12 @@ class TwitterChannel(IrcChannel):
         elif name == 'brave':
             self.bot_msg('So you should. All messages will be accepted.')
             self.proto.set_user_var('careful', '')
+        elif name == 'fancy':
+            self.proto.set_user_var('fancy', '1')
+            self.bot_msg('Fine.')
+        elif name == 'simple':
+            self.proto.set_user_var('fancy', '')
+            self.bot_msg('ok')
 
     def getFlag(self, name):
         #TODO caching user variables?

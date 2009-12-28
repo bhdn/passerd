@@ -27,4 +27,7 @@ def full_entity_decode(s):
     """
     return undo_xss_escaping(htmlentitydecode(s))
 
+def strip_html(s):
+    return re.sub('<.*?>', '', s)
+
 __all__ = ["htmlentitydecode", "undo_xss_escaping", "full_entity_decode"]
