@@ -874,9 +874,21 @@ class TwitterChannel(IrcChannel):
             for flag in flags:
                 self.setFlag(flag)
 
-    def setFlag(self, name):
+    def setFlag(self, name, set=True):
         if name == 'happy':
             self.bot_msg(':)')
+        elif name == 'careful':
+            if set:
+                self.bot_msg('No, you should. From now on you messages can '
+                        'only be sent with `!s <message>`')
+                self.proto.set_user_var(name, '1')
+
+    def getFlag(self, name):
+        #TODO caching user variables?
+        value = self.proto.user_var(name)
+        if not value or value == '0':
+            return False
+        return True
 
     def _shortenOneURL(self, url):
         d = defer.Deferred()
@@ -943,8 +955,10 @@ class TwitterChannel(IrcChannel):
     def messageReceived(self, sender, msg):
         if msg.startswith('!'):
             return self.commandReceived(msg[1:])
-
-        self.sendTwitterUpdate(msg)
+        if not self.getFlag('careful'):
+            self.sendTwitterUpdate(msg)
+        else:
+            self.bot_msg("La! La! La! La! I Can't Hear You!")
 
     def ctcp_ACTION(self, arg):
         dbg("ACTION: %r" % (arg))
