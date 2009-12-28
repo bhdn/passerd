@@ -862,10 +862,21 @@ class TwitterChannel(IrcChannel):
             self.bot_msg('Rate limit: %s. remaining: %s. reset: %s' % (api.rate_limit_limit, api.rate_limit_remaining, time.ctime(api.rate_limit_reset)))
             return
         args = cmd.split(" ", 1)
-        if len(args) > 1 and args[0] == 's':
-            self.sendShortened(args[1])
-            return
+        if args:
+            if args[0] == 's':
+                self.sendShortened(args[1])
+            elif args[0] == 'be':
+                self.configReceived(args[0], args[1])
 
+    def configReceived(self, type, expr):
+        if type =='be':
+            flags = expr.split()
+            for flag in flags:
+                self.setFlag(flag)
+
+    def setFlag(self, name):
+        if name == 'happy':
+            self.bot_msg(':)')
 
     def _shortenOneURL(self, url):
         d = defer.Deferred()
