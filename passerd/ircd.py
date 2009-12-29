@@ -802,7 +802,9 @@ class TwitterChannel(IrcChannel):
         dbg("#twitter refresh error")
         if e.check(twisted.web.error.Error):
             if str(e.value.status) == '503':
-                self.bot_notice("Look! A flying whale! -- %s" % (e.value))
+                if not self.getFlag('tolerant'):
+                    # TODO be 'tolerant' only up to a certain number of errors
+                    self.bot_notice("Look! A flying whale! -- %s" % (e.value))
                 return
 
         self.bot_notice("error refreshing feed: %s" % (e.value))
@@ -890,8 +892,10 @@ class TwitterChannel(IrcChannel):
             self.bot_msg('valid flags:')
             self.bot_msg('  careful - do not send messages unless using `!s <msg>`')
             self.bot_msg('  fancy - show source and timestamp from posts')
-            self.bot_msg('to unset, use, respectively: brave, simple')
-            set = [flag for flag in ('careful', 'fancy') if self.getFlag(flag)]
+            self.bot_msg('  tolerant - do not complain about every flying '
+                         'whale error (503)')
+            self.bot_msg('to unset, use, respectively: brave, simple, intolerant')
+            set = [flag for flag in ('careful', 'fancy', 'tolerant') if self.getFlag(flag)]
             self.bot_msg('set: [%s]' % (', '.join(set)))
         if name == 'happy':
             self.bot_msg(':)')
@@ -908,6 +912,12 @@ class TwitterChannel(IrcChannel):
         elif name == 'simple':
             self.proto.set_user_var('fancy', '')
             self.bot_msg('ok')
+        elif name == 'tolerant':
+            self.proto.set_user_var('tolerant', '1')
+            self.bot_msg('ok, I will tolerate it too')
+        elif name == 'intolerant':
+            self.proto.set_user_var('tolerant', '')
+            self.bot_msg('am I? I cannot accept it!')
         else:
             help()
 
