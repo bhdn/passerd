@@ -885,6 +885,14 @@ class TwitterChannel(IrcChannel):
                 self.setFlag(flag)
 
     def setFlag(self, name):
+        def help():
+            self.bot_msg('!be <flag>')
+            self.bot_msg('valid flags:')
+            self.bot_msg('  careful - do not send messages unless using `!s <msg>`')
+            self.bot_msg('  fancy - show source and timestamp from posts')
+            self.bot_msg('to unset, use, respectively: brave, simple')
+            set = [flag for flag in ('careful', 'fancy') if self.getFlag(flag)]
+            self.bot_msg('set: [%s]' % (', '.join(set)))
         if name == 'happy':
             self.bot_msg(':)')
         elif name == 'careful':
@@ -900,6 +908,8 @@ class TwitterChannel(IrcChannel):
         elif name == 'simple':
             self.proto.set_user_var('fancy', '')
             self.bot_msg('ok')
+        else:
+            help()
 
     def getFlag(self, name):
         #TODO caching user variables?
