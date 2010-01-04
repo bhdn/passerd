@@ -42,7 +42,8 @@ from twittytwister.twitter import Twitter, TwitterClientInfo
 from passerd.data import DataStore, TwitterUserData
 from passerd.callbacks import CallbackList
 from passerd.utils import full_entity_decode
-from passerd.feeds import HomeTimelineFeed, ListTimelineFeed, UserTimelineFeed, MentionsFeed, DirectMessagesFeed
+from passerd.feeds import (HomeTimelineFeed, ListTimelineFeed,
+        UserTimelineFeed, MentionsFeed, DirectMessagesFeed, SearchFeed)
 
 from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
 
@@ -1129,6 +1130,15 @@ class UserChannel(FriendIDsMixIn, FriendlistMixIn, TwitterChannel):
     def _fetch_user_info(self, users):
         return self.proto.twitter_users.fetch_friend_info(self.user, users)
 
+class SearchChannel(TwitterChannel):
+
+    def messageReceived(self, sender, message):
+        for feed in self.feeds:
+            feed.search(message)
+        self.bot_msg("now I am searching for '%s'" % (message))
+
+    def _createFeeds(self):
+        return [SearchFeed(self.proto)]
 
 class PasserdBot(IrcUser):
     """The Passerd IRC bot, that is used for Passerd messages on the channel"""
@@ -1492,12 +1502,15 @@ class PasserdProtocol(IRC):
 
         self.users = [self.the_user, self.passerd_bot]
 
-        predef_chans = [MainChannel(self, '#twitter'),  MentionsChannel(self, '#mentions'), UserSetupChannel(self, '#new-user-setup')]
+        predef_chans = [MainChannel(self, '#twitter'),
+                MentionsChannel(self, '#mentions'),
+                UserSetupChannel(self, '#new-user-setup'),
+                SearchChannel(self, '#search')]
 
         #TODO: keep a list of the fixed and joined channels,
         #      but use short-lived channel objects for other channel-query
         #      commands
-        self.channels = dict([(c.name, c) for c in predef_chans])
+        self.channels = dict((c.name, c) for c in predef_chans)
 
         #FIXME: make the auto-join optional:
         self.autojoin_channels = ['#twitter', '#mentions']

@@ -28,6 +28,7 @@
 
 import time
 import logging
+import urllib
 
 from twisted.internet import reactor, defer
 
@@ -219,3 +220,34 @@ class DirectMessagesFeed(TwitterFeed):
 
     def _timeline(self, delegate, args):
         return self.api.direct_messages(delegate, args)
+
+class SearchFeed(TwitterFeed):
+    """Feed for searches
+
+    This feed is intended to live across new searches.
+    """
+
+    def __init__(self, proto):
+        TwitterFeed.__init__(self, proto)
+        self._expr = None
+        self._ids = {} # search expression -> id
+
+    def search(self, expr):
+        self._expr = expr
+        self.refresh()
+
+    @property
+    def last_id(self):
+        return self._last_id or "-1"
+
+    def update_last_id(self, last_id):
+        self._last_id = last_id
+
+    def _timeline(self, delegate, args):
+        d = defer.Deferred()
+        if self._expr:
+            dbg("I am getting the timeline for %r" % (self._expr))
+            urlexpr = urllib.quote_plus(self._expr)
+            return self.api.search(urlexpr, delegate, args=args)
+        d.callback(666.0)
+        return d
